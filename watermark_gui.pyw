@@ -18,7 +18,7 @@ import sys
 import threading
 import datetime
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import ttk, filedialog, messagebox, colorchooser
 
 import pymupdf
 from PIL import Image, ImageChops, ImageDraw, ImageFont
@@ -41,7 +41,7 @@ try:
 except Exception:
     sv_ttk = None
 
-VERSION = "1.2.0"
+VERSION = "1.3.0"
 IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".bmp", ".webp")
 UI_FONT = "Microsoft JhengHei"
 FONT_CANDIDATES = [
@@ -54,9 +54,13 @@ FONT_CANDIDATES = [
 COLORS = {
     "灰色": (0.55, 0.55, 0.55),
     "黑色": (0.10, 0.10, 0.10),
+    "白色": (0.98, 0.98, 0.98),
     "紅色": (0.75, 0.12, 0.12),
     "藍色": (0.15, 0.30, 0.75),
+    "綠色": (0.13, 0.55, 0.33),
+    "金色": (0.72, 0.53, 0.04),
 }
+CUSTOM_NAME = "自訂顏色…"
 DEFAULT_TEXT = "僅供個人複習"
 ACCENT = "#005fb8"          # 淺色主題強調色
 ACCENT_DARK = "#4cc2ff"     # 深色主題強調色
@@ -71,6 +75,24 @@ def pick_font():
 
 def is_image(path):
     return os.path.splitext(path)[1].lower() in IMAGE_EXTS
+
+
+def system_prefers_dark():
+    """讀取 Windows 設定：App 是否使用深色模式"""
+    try:
+        import winreg
+        k = winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize")
+        v, _ = winreg.QueryValueEx(k, "AppsUseLightTheme")
+        return v == 0
+    except Exception:
+        return False
+
+
+def to_hex(rgb):
+    return "#%02x%02x%02x" % tuple(
+        max(0, min(255, int(round(c * 255)))) for c in rgb)
 
 
 def compose_image_watermark(img, s, fs_scale=1.0):
@@ -209,13 +231,14 @@ class App(BaseTk):
         self._photo = None
         self._after_id = None
         self._apply_results = None
+        self.custom_rgb = None
+        self._last_color_name = "灰色"
         self.selftest = selftest
 
-        if sv_ttk is not None:
-            sv_ttk.set_theme("light")
+        self._startup_theme = "dark" if system_prefers_dark() else "light"
         self._build_ui()
         if sv_ttk is not None:
-            self._apply_theme_colors()
+            self._set_theme(self._startup_theme)
         self._bind_events()
 
         if preload:
@@ -376,10 +399,13 @@ class App(BaseTk):
 
         ttk.Label(inner, text="顏色", style="Sub.TLabel").grid(row=7, column=0, sticky="w",
                                                                pady=(12, 0))
-        self.color_box = ttk.Combobox(inner, values=list(COLORS.keys()),
-                                      state="readonly", font=(UI_FONT, 9))
+        self.color_box = ttk.Combobox(
+            inner, values=list(COLORS.keys()) + [CUSTOM_NAME],
+            state="readonly", font=(UI_FONT, 9))
         self.color_box.current(0)
-        self.color_box.grid(row=7, column=1, columnspan=2, sticky="we", padx=(12, 0), pady=(12, 0))
+        self.color_box.grid(row=7, column=1, sticky="we", padx=(12, 6), pady=(12, 0))
+        self.swatch = tk.Label(inner, text="", width=4, relief="solid", borderwidth=1)
+        self.swatch.grid(row=7, column=2, sticky="e", pady=(12, 0))
 
         self.den_var = tk.DoubleVar(value=100)
         self.den_val = tk.StringVar()
@@ -413,12 +439,43 @@ class App(BaseTk):
             self._accent_hex = ACCENT
         self.listbox.config(bg=lb_bg, fg=lb_fg,
                             selectbackground=sel_bg, selectforeground=sel_fg)
+        self._update_swatch()
         if hasattr(self, "theme_btn"):
             self.theme_btn.config(text="☀ 淺色" if dark else "🌙 深色")
 
-    def on_toggle_theme(self):
-        sv_ttk.toggle_theme()
+    def _set_theme(self, name):
+        if sv_ttk is None:
+            return
+        sv_ttk.set_theme(name)
         self._apply_theme_colors()
+
+    def on_toggle_theme(self):
+        self._set_theme("light" if sv_ttk.get_theme() == "dark" else "dark")
+
+    def _resolve_color(self):
+        name = self.color_box.get()
+        if name == CUSTOM_NAME and self.custom_rgb:
+            return self.custom_rgb
+        return COLORS.get(name, (0.55, 0.55, 0.55))
+
+    def _update_swatch(self):
+        if hasattr(self, "swatch"):
+            self.swatch.config(bg=to_hex(self._resolve_color()))
+
+    def on_color_selected(self, ev=None):
+        if self.color_box.get() == CUSTOM_NAME:
+            initial = to_hex(self._resolve_color())
+            rgb, _hex = colorchooser.askcolor(parent=self, title="選擇浮水印顏色",
+                                              initialcolor=initial)
+            if rgb is None:
+                self.color_box.set(self._last_color_name)   # 使用者取消
+            else:
+                self.custom_rgb = tuple(c / 255.0 for c in rgb)
+                self._last_color_name = CUSTOM_NAME
+        else:
+            self._last_color_name = self.color_box.get()
+        self._update_swatch()
+        self._on_change()
 
     def _bind_events(self):
         self.listbox.bind("<<ListboxSelect>>", lambda e: self._on_change(0))
@@ -427,7 +484,7 @@ class App(BaseTk):
         self.op_var.trace_add("write", lambda *a: self._on_change())
         self.ang_var.trace_add("write", lambda *a: self._on_change())
         self.den_var.trace_add("write", lambda *a: self._on_change())
-        self.color_box.bind("<<ComboboxSelected>>", lambda e: self._on_change())
+        self.color_box.bind("<<ComboboxSelected>>", self.on_color_selected)
         self.canvas.bind("<Configure>", lambda e: self._on_change(120))
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
@@ -534,7 +591,7 @@ class App(BaseTk):
             "fontsize": int(round(self.size_var.get())),
             "opacity": max(0.05, min(0.95, self.op_var.get() / 100.0)),
             "angle": int(round(self.ang_var.get())),
-            "color": COLORS.get(self.color_box.get(), (0.55, 0.55, 0.55)),
+            "color": self._resolve_color(),
             "density": int(round(self.den_var.get())),
             "fontfile": self.fontfile,
         }
@@ -717,6 +774,12 @@ def main():
                 app.text_var.set("GUI測試水印")
                 app.auto_var.set(False)
                 app.size_var.set(36)
+                # 自訂顏色流程測試
+                app.color_box.set(CUSTOM_NAME)
+                app.custom_rgb = (0.2, 0.4, 0.6)
+                assert app._collect()["color"] == (0.2, 0.4, 0.6), "自訂顏色未生效"
+                app.color_box.set("灰色")
+                app.custom_rgb = None
                 app._render_now()
                 assert app._photo is not None, "預覽圖未產生"
                 assert app.apply_btn.winfo_ismapped(), "套用按鈕沒有顯示在畫面上！"
