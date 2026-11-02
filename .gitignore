@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.pyo
+dist/
+build/
+*.spec
+.vscode/
+.idea/
+*_浮水印*.pdf
+*.log
