@@ -14,7 +14,14 @@
 - 🛡 **原檔安全**：輸出另存新檔（檔名加「浮水印」後綴），原檔永不會被改動；加密 PDF 自動略過
 - 🀄 **中文友好**：介面與水印文字皆支援中文（自動使用系統黑體／微軟正黑）
 
-## 📦 安裝
+## ⬇️ 下載免安裝版（一般用戶推薦）
+
+到 [**Releases**](../../releases) 頁面下載 `PDF-Watermark-Tool.exe`，雙擊即用，**無需安裝 Python**。
+
+> 註：exe 未做數位簽署，首次執行時 Windows SmartScreen 可能提示「已保護您的電腦」，
+> 點「更多資訊 → 仍要執行」即可（原始碼全在這個倉庫，可自行審閱或從源碼打包）。
+
+## 📦 從源碼安裝
 
 需要 [Python](https://www.python.org/downloads/) 3.10 或以上（Windows 安裝時勾選 *Add to PATH*）。
 
@@ -62,9 +69,23 @@ macOS / Linux 使用者可以自行把 `watermark_gui.pyw` / `watermark_cli.py` 
 ├── watermark_gui.pyw      # GUI 主程式（雙擊即用）
 ├── watermark_cli.py       # 命令列版本
 ├── 啟動浮水印工具.bat      # Windows 一鍵啟動
+├── assets/icon.ico        # 程式圖示
 ├── requirements.txt
 └── docs/screenshot.png
 ```
+
+## 🔨 自行打包 exe
+
+```bash
+pip install pyinstaller
+pyinstaller --noconfirm --windowed --onefile --icon assets/icon.ico ^
+    --name PDF-Watermark-Tool --collect-all tkinterdnd2 watermark_gui.pyw
+```
+
+產出在 `dist/PDF-Watermark-Tool.exe`（也可以直接用倉庫裡的 `PDF-Watermark-Tool.spec`）。
+
+> 提示：請搭配 pymupdf 1.x 打包（`pip install "pymupdf<2"`）。
+> pymupdf 2.x 會把約 49MB 的 ONNX 版面分析資源一併打進 exe，體積明顯變大。
 
 ## 🤝 貢獻
 
