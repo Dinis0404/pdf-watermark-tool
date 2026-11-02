@@ -4,7 +4,7 @@
 功能：
   - 左側檔案清單：可拖放 PDF 進視窗，或按「新增 PDF」
   - 中間即時預覽：任何設定改動都會立即重繪（顯示第 1 個檔案的目前頁面）
-  - 右側設定：文字／樣式／字號／透明度／角度／顏色／密度
+  - 右側設定：文字／樣式／字號／透明度／角度／顏色／密度（緊湊單行排版，「套用並儲存」固定在底部）
   - 「套用並儲存」對清單中全部檔案加浮水印，輸出到原檔旁（加「浮水印」後綴）
 
 本工具完全離線運作，檔案不會外傳。
@@ -113,8 +113,11 @@ class App(BaseTk):
     def __init__(self, preload=None, selftest=False):
         super().__init__()
         self.title("PDF 浮水印工具")
-        self.geometry("1180x780")
-        self.minsize(980, 640)
+        sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
+        w = min(1240, int(sw * 0.92))
+        h = min(860, int(sh * 0.92))
+        self.geometry("{}x{}".format(w, h))
+        self.minsize(1000, 640)
         self.configure(bg="#f2f4f8")
 
         self.fontfile = pick_font()
@@ -149,15 +152,23 @@ class App(BaseTk):
                         foreground="#777777")
         style.configure("Val.TLabel", font=("Microsoft JhengHei", 9), background="#f2f4f8")
 
+        # 版面：左檔案清單｜中預覽｜右設定；底部狀態列。全部隨視窗縮放。
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(1, weight=1)
+
         # 左：檔案清單
         left = ttk.LabelFrame(self, text=" 檔案（可拖放 PDF 進視窗） ")
-        left.place(x=10, y=10, width=250, height=640)
-        self.listbox = tk.Listbox(left, selectmode=tk.EXTENDED,
-                                  font=("Microsoft JhengHei", 9),
-                                  activestyle="none")
-        self.listbox.pack(fill="both", expand=True, padx=6, pady=(6, 4))
+        left.grid(row=0, column=0, sticky="nsew", padx=(10, 4), pady=10)
+        lb = ttk.Frame(left)
+        lb.pack(fill="both", expand=True, padx=6, pady=(6, 2))
+        self.listbox = tk.Listbox(lb, selectmode=tk.EXTENDED,
+                                  font=("Microsoft JhengHei", 9), activestyle="none")
+        lsb = ttk.Scrollbar(lb, orient="vertical", command=self.listbox.yview)
+        self.listbox.config(yscrollcommand=lsb.set)
+        self.listbox.pack(side="left", fill="both", expand=True)
+        lsb.pack(side="right", fill="y")
         btns = ttk.Frame(left)
-        btns.pack(fill="x", padx=6, pady=(2, 6))
+        btns.pack(fill="x", padx=6, pady=(2, 2))
         ttk.Button(btns, text="新增 PDF", style="Tool.TButton",
                    command=self.on_add).pack(side="left", expand=True, fill="x", padx=1)
         ttk.Button(btns, text="移除所選", style="Tool.TButton",
@@ -169,7 +180,7 @@ class App(BaseTk):
 
         # 中：預覽
         mid = ttk.LabelFrame(self, text=" 預覽（即時） ")
-        mid.place(x=270, y=10, width=600, height=640)
+        mid.grid(row=0, column=1, sticky="nsew", padx=4, pady=10)
         self.canvas = tk.Canvas(mid, bg="#3c4048", highlightthickness=0)
         self.canvas.pack(fill="both", expand=True, padx=6, pady=(6, 2))
         nav = ttk.Frame(mid)
@@ -184,73 +195,76 @@ class App(BaseTk):
                                    command=lambda: self.flip(1), state="disabled")
         self.next_btn.pack(side="right")
 
-        # 右：設定
+        # 右：設定（緊湊單行排版；「套用並儲存」固定在面板底部，任何縮放都不會被擠出畫面）
         right = ttk.LabelFrame(self, text=" 浮水印設定 ")
-        right.place(x=880, y=10, width=290, height=640)
-        pad = dict(padx=12, pady=(8, 0), sticky="we")
+        right.grid(row=0, column=2, sticky="nsew", padx=(4, 10), pady=10)
+        inner = ttk.Frame(right)
+        inner.pack(fill="both", expand=True, padx=10, pady=(2, 0))
+        inner.grid_columnconfigure(1, weight=1)
 
-        ttk.Label(right, text="浮水印文字", style="Lab.TLabel").grid(row=0, **pad)
+        ttk.Label(inner, text="浮水印文字", style="Lab.TLabel").grid(
+            row=0, column=0, columnspan=3, sticky="w", pady=(4, 1))
         self.text_var = tk.StringVar(value=DEFAULT_TEXT)
-        e = ttk.Entry(right, textvariable=self.text_var, font=("Microsoft JhengHei", 10))
-        e.grid(row=1, **pad)
+        ttk.Entry(inner, textvariable=self.text_var,
+                  font=("Microsoft JhengHei", 10)).grid(row=1, column=0, columnspan=3, sticky="we")
 
-        ttk.Label(right, text="樣式", style="Lab.TLabel").grid(row=2, **pad)
         self.style_var = tk.StringVar(value="tile")
-        rf = ttk.Frame(right)
-        rf.grid(row=3, **pad)
-        ttk.Radiobutton(rf, text="滿頁平鋪", value="tile", variable=self.style_var).pack(side="left", expand=True)
-        ttk.Radiobutton(rf, text="居中大水印", value="center", variable=self.style_var).pack(side="left", expand=True)
+        rf = ttk.Frame(inner)
+        rf.grid(row=2, column=0, columnspan=3, sticky="w", pady=(8, 0))
+        ttk.Radiobutton(rf, text="滿頁平鋪", value="tile",
+                        variable=self.style_var).pack(side="left", expand=True)
+        ttk.Radiobutton(rf, text="居中大水印", value="center",
+                        variable=self.style_var).pack(side="left", expand=True)
 
         self.auto_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(right, text="自動字號（跟隨頁面大小）", variable=self.auto_var,
-                        command=self.on_auto_toggle).grid(row=4, **pad)
+        ttk.Checkbutton(inner, text="自動字號（跟隨頁面大小）", variable=self.auto_var,
+                        command=self.on_auto_toggle).grid(row=3, column=0, columnspan=3,
+                                                          sticky="w", pady=(8, 0))
+
+        def srow(r, label, frm, to, var, val_var, val_text):
+            ttk.Label(inner, text=label, style="Lab.TLabel").grid(row=r, column=0, sticky="w")
+            sc = ttk.Scale(inner, from_=frm, to=to, variable=var,
+                           command=lambda v: self._on_change())
+            sc.grid(row=r, column=1, sticky="we", padx=(10, 6))
+            val_var.set(val_text)
+            ttk.Label(inner, textvariable=val_var, style="Val.TLabel", width=7,
+                      anchor="e").grid(row=r, column=2, sticky="e")
+            return sc
+
         self.size_var = tk.DoubleVar(value=30)
-        self.size_scale = ttk.Scale(right, from_=12, to=90, variable=self.size_var,
-                                    command=lambda v: self._on_change())
-        self.size_scale.grid(row=5, **pad)
-        self.size_val = tk.StringVar(value="30 pt")
-        ttk.Label(right, textvariable=self.size_val, style="Val.TLabel").grid(row=6, padx=12, sticky="w")
-
-        ttk.Label(right, text="不透明度", style="Lab.TLabel").grid(row=7, **pad)
+        self.size_val = tk.StringVar()
+        self.size_scale = srow(4, "字號", 12, 90, self.size_var, self.size_val, "30 pt")
         self.op_var = tk.DoubleVar(value=12)
-        ttk.Scale(right, from_=5, to=50, variable=self.op_var,
-                  command=lambda v: self._on_change()).grid(row=8, **pad)
-        self.op_val = tk.StringVar(value="12 %")
-        ttk.Label(right, textvariable=self.op_val, style="Val.TLabel").grid(row=9, padx=12, sticky="w")
-
-        ttk.Label(right, text="角度", style="Lab.TLabel").grid(row=10, **pad)
+        self.op_val = tk.StringVar()
+        self.op_scale = srow(5, "不透明度", 5, 50, self.op_var, self.op_val, "12 %")
         self.ang_var = tk.DoubleVar(value=38)
-        ttk.Scale(right, from_=0, to=90, variable=self.ang_var,
-                  command=lambda v: self._on_change()).grid(row=11, **pad)
-        self.ang_val = tk.StringVar(value="38 °")
-        ttk.Label(right, textvariable=self.ang_val, style="Val.TLabel").grid(row=12, padx=12, sticky="w")
+        self.ang_val = tk.StringVar()
+        self.ang_scale = srow(6, "角度", 0, 90, self.ang_var, self.ang_val, "38 °")
 
-        ttk.Label(right, text="顏色", style="Lab.TLabel").grid(row=13, **pad)
-        self.color_box = ttk.Combobox(right, values=list(COLORS.keys()),
+        ttk.Label(inner, text="顏色", style="Lab.TLabel").grid(row=7, column=0, sticky="w")
+        self.color_box = ttk.Combobox(inner, values=list(COLORS.keys()),
                                       state="readonly", font=("Microsoft JhengHei", 9))
         self.color_box.current(0)
-        self.color_box.grid(row=14, **pad)
+        self.color_box.grid(row=7, column=1, columnspan=2, sticky="we", padx=(10, 0), pady=(8, 0))
 
-        ttk.Label(right, text="平鋪密度", style="Lab.TLabel").grid(row=15, **pad)
         self.den_var = tk.DoubleVar(value=100)
-        self.den_scale = ttk.Scale(right, from_=60, to=200, variable=self.den_var,
-                                   command=lambda v: self._on_change())
-        self.den_scale.grid(row=16, **pad)
-        self.den_val = tk.StringVar(value="100 %")
-        ttk.Label(right, textvariable=self.den_val, style="Val.TLabel").grid(row=17, padx=12, sticky="w")
+        self.den_val = tk.StringVar()
+        self.den_scale = srow(8, "平鋪密度", 60, 200, self.den_var, self.den_val, "100 %")
 
-        self.apply_btn = ttk.Button(right, text="套用並儲存", style="Big.TButton",
+        # 套用區：固定在面板底部
+        applyf = ttk.Frame(right)
+        applyf.pack(side="bottom", fill="x", padx=10, pady=(2, 8))
+        self.apply_btn = ttk.Button(applyf, text="套用並儲存", style="Big.TButton",
                                     command=self.on_apply)
-        self.apply_btn.grid(row=18, padx=12, pady=(14, 2), sticky="we")
-        ttk.Label(right, text="輸出：存在原檔旁，檔名加「浮水印」；原檔不會被改動。",
-                  style="Hint.TLabel", wraplength=250).grid(row=19, padx=12, pady=(4, 8), sticky="w")
-        right.columnconfigure(0, weight=1)
+        self.apply_btn.pack(fill="x")
+        ttk.Label(applyf, text="輸出：存在原檔旁，檔名加「浮水印」；原檔不會被改動。",
+                  style="Hint.TLabel", wraplength=250).pack(anchor="w", pady=(4, 0))
 
         # 底部狀態列
         self.status_var = tk.StringVar(value="就緒")
         status = ttk.Label(self, textvariable=self.status_var, relief="sunken",
                            anchor="w", font=("Microsoft JhengHei", 8))
-        status.place(x=10, y=656, width=1160, height=22)
+        status.grid(row=1, column=0, columnspan=3, sticky="we", padx=10, pady=(0, 8))
         font_name = os.path.basename(self.fontfile) if self.fontfile else "未找到中文字體！"
         self.status_var.set("就緒｜浮水印字體：" + font_name)
         if not self.fontfile:
@@ -516,6 +530,7 @@ def main():
                 app.size_var.set(36)
                 app._render_now()
                 assert app._photo is not None, "預覽圖未產生"
+                assert app.apply_btn.winfo_ismapped(), "套用按鈕沒有顯示在畫面上！"
                 s = app._collect()
                 app._apply_worker([sample], s)
                 res = app._apply_results
