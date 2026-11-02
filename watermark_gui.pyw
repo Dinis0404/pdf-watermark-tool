@@ -11,6 +11,7 @@
 本工具完全離線運作，檔案不會外傳。
 """
 import io
+import math
 import os
 import re
 import sys
@@ -20,7 +21,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
 import pymupdf
-from PIL import Image
+from PIL import Image, ImageChops, ImageDraw, ImageFont
 
 try:
     import ctypes
@@ -40,7 +41,8 @@ try:
 except Exception:
     sv_ttk = None
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
+IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".bmp", ".webp")
 UI_FONT = "Microsoft JhengHei"
 FONT_CANDIDATES = [
     r"C:\Windows\Fonts\simhei.ttf",
@@ -67,6 +69,60 @@ def pick_font():
     return None
 
 
+def is_image(path):
+    return os.path.splitext(path)[1].lower() in IMAGE_EXTS
+
+
+def compose_image_watermark(img, s, fs_scale=1.0):
+    """在 PIL 圖片（RGBA）上合成浮水印；fs_scale 供預覽縮放時等比縮小字號"""
+    w, h = img.size
+    text = s["text"] or " "
+    if s["auto"]:
+        if s["style"] == "center":
+            fs = max(24, min(w, h) / max(4, len(text)) * 1.15)
+        else:
+            fs = max(14, min(w, h) / 26)
+    else:
+        fs = s["fontsize"]
+    fs = max(8, fs * fs_scale)
+    font = ImageFont.truetype(s["fontfile"], size=int(round(fs)))
+    color255 = tuple(int(round(c * 255)) for c in s["color"])
+
+    # 先畫出一枚「文字貼片」，再旋轉
+    probe = ImageDraw.Draw(Image.new("RGBA", (8, 8)))
+    bbox = probe.textbbox((0, 0), text, font=font)
+    tw, th = max(1, bbox[2] - bbox[0]), max(1, bbox[3] - bbox[1])
+    spr = Image.new("RGBA", (tw, th), (0, 0, 0, 0))
+    ImageDraw.Draw(spr).text((-bbox[0], -bbox[1]), text, font=font, fill=color255 + (255,))
+    rot = spr.rotate(s["angle"], expand=True, resample=Image.BICUBIC)
+    rw, rh = rot.size
+
+    # 外擴畫布方便負座標平鋪，最後再裁回
+    mg_x, mg_y = rw + 2, rh + 2
+    layer = Image.new("RGBA", (w + mg_x * 2, h + mg_y * 2), (0, 0, 0, 0))
+    if s["style"] == "center":
+        layer.alpha_composite(rot, (int(mg_x + w / 2 - rw / 2), int(mg_y + h / 2 - rh / 2)))
+    else:
+        dens = s["density"] / 100.0
+        dx = rw + max(18.0, rw * 0.12) * dens
+        dy = rh + max(14.0, rh * 0.30) * dens
+        row = 0
+        y = 0.0
+        while y < layer.height:
+            x = (dx / 2 if row % 2 else 0.0)
+            while x < layer.width:
+                layer.alpha_composite(rot, (int(x), int(y)))
+                x += dx
+            y += dy
+            row += 1
+    alpha = layer.getchannel("A").point(lambda v: int(v * s["opacity"]))
+    layer.putalpha(alpha)
+    layer = layer.crop((mg_x, mg_y, mg_x + w, mg_y + h))
+    out = img.convert("RGBA")
+    out.alpha_composite(layer)
+    return out
+
+
 def draw_on_page(page, s):
     """在 pymupdf 頁面上畫浮水印（預覽與輸出共用同一套幾何）"""
     r = page.rect
@@ -91,10 +147,23 @@ def draw_on_page(page, s):
             fs = max(14, min(r.width, r.height) / 26)
         else:
             fs = s["fontsize"]
+        # 量測實際文字的旋轉後尺寸，讓平鋪間距自動撐開——任何字號／長度都不會疊字
+        try:
+            fobj = pymupdf.Font(fontfile=s["fontfile"]) if s["fontfile"] else pymupdf.Font("helv")
+            tw = fobj.text_length(text, fontsize=fs)
+        except Exception:
+            tw = fs * max(1, len(text)) * 0.9
+        line_h = fs * 1.25
+        rad = math.radians(angle)
+        tw_eff = abs(tw * math.cos(rad)) + abs(line_h * math.sin(rad))
+        th_eff = abs(tw * math.sin(rad)) + abs(line_h * math.cos(rad))
         dens = s["density"] / 100.0
-        dx, dy = r.width / 3.2 * dens, r.height / 4.5 * dens
+        pad_x = max(20.0, tw_eff * 0.12) * dens
+        pad_y = max(16.0, th_eff * 0.30) * dens
+        dx = tw_eff + pad_x
+        dy = th_eff + pad_y
         row = 0
-        y = dy * 0.55
+        y = dy * 0.6
         while y < r.height + fs:
             x = dx * 0.35 + (row % 2) * (dx / 2)
             while x < r.width + fs:
@@ -134,6 +203,7 @@ class App(BaseTk):
         self.files = []
         self.doc = None
         self.doc_path = None
+        self._img_base = None
         self.page_index = 0
         self.base_cache = None      # (path, pno, w, h, PIL.Image)
         self._photo = None
@@ -210,7 +280,7 @@ class App(BaseTk):
             return c
 
         # 左：檔案清單
-        left = card(main, "檔案", "把 PDF 拖進視窗即可加入")
+        left = card(main, "檔案", "把 PDF 或圖片拖進視窗即可加入")
         left.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
         lb = ttk.Frame(left, style="Card.TFrame")
         lb.pack(fill="both", expand=True)
@@ -364,22 +434,26 @@ class App(BaseTk):
     # ---------------- 檔案管理 ----------------
     def on_add(self):
         paths = filedialog.askopenfilenames(
-            title="選擇 PDF 檔案", filetypes=[("PDF 檔案", "*.pdf"), ("所有檔案", "*.*")])
+            title="選擇 PDF / 圖片檔案",
+            filetypes=[("PDF / 圖片", "*.pdf *.jpg *.jpeg *.png *.bmp *.webp"),
+                       ("所有檔案", "*.*")])
         self.add_files(paths)
 
     def on_drop(self, ev):
         data = ev.data
         parts = re.findall(r"\{([^}]*)\}|(\S+)", data)
         paths = [(a if a else b).strip('"') for a, b in parts]
-        self.add_files([p for p in paths if p.lower().endswith(".pdf")])
+        accept = (".pdf",) + IMAGE_EXTS
+        self.add_files([p for p in paths if p.lower().endswith(accept)])
 
     def add_files(self, paths):
         changed = False
+        accept = (".pdf",) + IMAGE_EXTS
         for p in paths:
             p = os.path.abspath(p)
-            if p.lower().endswith(".pdf") and p not in self.files:
+            if p.lower().endswith(accept) and p not in self.files:
                 self.files.append(p)
-                self.listbox.insert("end", "📄 " + os.path.basename(p))
+                self.listbox.insert("end", ("🖼 " if is_image(p) else "📄 ") + os.path.basename(p))
                 changed = True
         if changed:
             self._reload_doc()
@@ -410,7 +484,15 @@ class App(BaseTk):
             self.doc = None
             self.doc_path = None
         self.base_cache = None
+        self._img_base = None
         self.page_index = 0
+        if self.files and is_image(self.files[0]):
+            self.doc_path = self.files[0]
+            try:
+                self._img_base = Image.open(self.files[0]).convert("RGBA")
+            except Exception as ex:
+                self.status_var.set("⚠ 無法開啟圖片：" + str(ex))
+            return
         if self.files:
             path = self.files[0]
             try:
@@ -488,7 +570,27 @@ class App(BaseTk):
             self.page_var.set("—")
             self.canvas.create_text(cw / 2, ch / 2, fill="#aeb4be",
                                     font=(UI_FONT, 12),
-                                    text="把 PDF 拖進視窗，或按左邊「新增 PDF」\n\n任何設定改動都會即時預覽")
+                                    text="把 PDF 或圖片拖進視窗，或按左邊「新增 PDF」\n\n任何設定改動都會即時預覽")
+            return
+        if self.doc_path and is_image(self.doc_path):
+            # 圖片預覽：縮放到畫布大小後直接合成（與輸出同一套函式）
+            self.page_var.set("第 1 / 1 頁")
+            self.prev_btn.config(state="disabled")
+            self.next_btn.config(state="disabled")
+            try:
+                img = self._img_base
+                z = min((cw - 16) / img.width, (ch - 16) / img.height)
+                z = max(0.02, min(z, 1.0))
+                small = img.resize((max(1, int(img.width * z)), max(1, int(img.height * z))),
+                                   Image.LANCZOS)
+                combined = compose_image_watermark(small, self._collect(), fs_scale=z)
+                buf = io.BytesIO()
+                combined.save(buf, format="PNG")
+                self._photo = tk.PhotoImage(data=buf.getvalue())
+                self.canvas.create_image(0, 0, anchor="nw", image=self._photo)
+            except Exception as ex:
+                self.canvas.create_text(cw / 2, ch / 2, fill="#e8a0a0",
+                                        font=(UI_FONT, 10), text="預覽失敗：{}".format(ex))
             return
         if self.doc is None:
             self.page_var.set("—")
@@ -549,6 +651,17 @@ class App(BaseTk):
         results = []
         for f in files:
             try:
+                if is_image(f):
+                    img = Image.open(f).convert("RGBA")
+                    out_img = compose_image_watermark(img, s)
+                    out = unique_output(f)
+                    ext = os.path.splitext(f)[1].lower()
+                    if ext in (".jpg", ".jpeg"):
+                        out_img.convert("RGB").save(out, quality=92)
+                    else:
+                        out_img.save(out)
+                    results.append((f, out, None))
+                    continue
                 doc = pymupdf.open(f)
                 if doc.needs_pass:
                     doc.close()
@@ -615,6 +728,21 @@ def main():
                 txt = chk[3].get_text()
                 chk.close()
                 assert "GUI測試水印" in txt, "輸出中找不到浮水印文字"
+                # 圖片浮水印測試
+                tdir = os.path.dirname(os.path.abspath(sample))
+                timg = os.path.join(tdir, "_wm_selftest_img.png")
+                Image.new("RGB", (900, 650), (180, 30, 30)).save(timg)
+                app._apply_worker([timg], s)
+                res2 = app._apply_results
+                assert res2 and res2[0][1], "圖片輸出失敗：" + str(res2)
+                o = Image.open(res2[0][1]).convert("RGB")
+                orig = Image.open(timg).convert("RGB")
+                g = ImageChops.difference(o, orig).convert("L")
+                changed = sum(g.histogram()[1:])
+                assert changed > 200, "圖片浮水印未生效（變更像素 {}）".format(changed)
+                os.remove(res2[0][1])
+                os.remove(timg)
+                print("image test OK")
                 print("SELFTEST OK ->", res[0][1])
             except Exception as ex:
                 print("SELFTEST FAIL:", ex)
