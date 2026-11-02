@@ -3,13 +3,18 @@
 > 簡單易用、即時預覽、100% 離線的 PDF 加水印工具。
 > An easy-to-use offline PDF watermark tool with live preview, built for Windows.
 
-![介面截圖](docs/screenshot.png)
+![淺色主題介面](docs/screenshot.png)
+
+*右上角一鍵切換深色模式：*
+
+![深色主題介面](docs/screenshot_dark.png)
 
 ## ✨ 特色
 
 - 🖼 **即時預覽**：任何設定一改動，預覽立刻重繪，所見即所得（預覽與輸出使用同一套排版引擎）
 - 🖱 **拖放操作**：把 PDF 直接拖進視窗即可加入清單，支援一次多個檔案批次套用
 - 🎛 **參數全可調**：水印文字、滿頁平鋪／居中大水印、字號（可自動）、不透明度、角度、顏色、平鋪密度
+- 🌙 **深色／淺色主題**：一鍵切換 Windows 11 風格現代介面（[Sun Valley ttk](https://github.com/rdbende/Sun-Valley-ttk-theme)）
 - 🔒 **100% 離線**：所有處理都在本機完成，檔案絕不上傳任何伺服器
 - 🛡 **原檔安全**：輸出另存新檔（檔名加「浮水印」後綴），原檔永不會被改動；加密 PDF 自動略過
 - 🀄 **中文友好**：介面與水印文字皆支援中文（自動使用系統黑體／微軟正黑）
