@@ -45,23 +45,13 @@ pip install pymupdf pillow tkinterdnd2
 
 ## 🚀 使用
 
-### 圖形介面（推薦）
+### 圖形介面
 
 - 雙擊 **`watermark_gui.pyw`**，或
-- 雙擊 **`啟動浮水印工具.bat`**（也可以把 PDF 直接拖到 bat 圖示上）
+- 雙擊 **`啟動浮水印工具.bat`**（也可以把 PDF／圖片直接拖到 bat 圖示上）
 
-操作：把 PDF 拖進視窗（或按「新增 PDF」）→ 右側調整設定 → 即時預覽確認 → 按「**套用並儲存**」。
+操作：把 PDF 或圖片拖進視窗（或按「新增 PDF」）→ 右側調整設定 → 即時預覽確認 → 按「**套用並儲存**」。
 輸出檔會出現在原檔旁邊，檔名加「浮水印」二字。
-
-### 命令列
-
-```bash
-# 互動模式
-python watermark_cli.py
-
-# 帶參數：--text 水印文字  --style 1=居中大水印 2=滿頁平鋪（預設 2）
-python watermark_cli.py 檔案.pdf --text "內部資料" --style 1
-```
 
 ## 🪟 平台支援
 
@@ -74,12 +64,11 @@ macOS / Linux 使用者可以自行把 `watermark_gui.pyw` / `watermark_cli.py` 
 ## 📁 專案結構
 
 ```
-├── watermark_gui.pyw      # GUI 主程式（雙擊即用）
-├── watermark_cli.py       # 命令列版本
+├── watermark_gui.pyw      # 主程式（雙擊即用）
 ├── 啟動浮水印工具.bat      # Windows 一鍵啟動
 ├── assets/icon.ico        # 程式圖示
 ├── requirements.txt
-└── docs/screenshot.png
+└── docs/（深淺色介面截圖）
 ```
 
 ## 🔨 自行打包 exe
@@ -90,7 +79,7 @@ pyinstaller --noconfirm --windowed --onefile --icon assets/icon.ico ^
     --name PDF-Watermark-Tool --collect-all tkinterdnd2 watermark_gui.pyw
 ```
 
-產出在 `dist/PDF-Watermark-Tool.exe`（也可以直接用倉庫裡的 `PDF-Watermark-Tool.spec`）。
+產出在 `dist/PDF-Watermark-Tool.exe`。
 
 > 提示：請搭配 pymupdf 1.x 打包（`pip install "pymupdf<2"`）。
 > pymupdf 2.x 會把約 49MB 的 ONNX 版面分析資源一併打進 exe，體積明顯變大。
